@@ -627,7 +627,8 @@ export type TUserTermsResponse = {
 };
 
 export type TAcceptTermsResponse = {
-  success: boolean;
+  message: string;
+  termsAcceptedAt: Date | string;
 };
 
 export type TBannerResponse = TBanner | null;
