@@ -529,12 +529,11 @@ class BaseClient {
       const availableForSummary =
         this.maxContextTokens - latestMessageTokens - instructionsTokenCount - bufferTokens;
 
-      // Compress ALL messages (not just overflow) with full compression mode
+      // Compress ALL messages with recency-weighted summarization
       const result = await this.summarizeMessages({
         messagesToRefine: orderedMessages,
         previousSummary,
         remainingContextTokens: availableForSummary,
-        fullCompression: true,
       });
 
       summaryMessage = result.summaryMessage;

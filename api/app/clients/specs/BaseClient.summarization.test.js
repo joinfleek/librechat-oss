@@ -283,15 +283,5 @@ describe('Checkpoint Summarization Logic', () => {
       expect(maxTokensForSummary).toBe(400);
     });
 
-    it('should use smaller limit for incremental summarization', () => {
-      const remainingContextTokens = 1000;
-      const fullCompression = false;
-
-      const maxTokensForSummary = fullCompression
-        ? Math.min(2000, remainingContextTokens - 100)
-        : Math.min(500, remainingContextTokens - 100);
-
-      expect(maxTokensForSummary).toBe(500);
-    });
   });
 });

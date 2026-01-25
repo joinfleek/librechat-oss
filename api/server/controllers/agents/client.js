@@ -43,7 +43,7 @@ const {
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
-const { SUMMARY_PROMPT, WEIGHTED_SUMMARY_PROMPT } = require('~/app/clients/prompts/summaryPrompts');
+const { WEIGHTED_SUMMARY_PROMPT } = require('~/app/clients/prompts/summaryPrompts');
 
 /**
  * Constants for checkpoint-based summarization
@@ -843,26 +843,19 @@ class AgentClient extends BaseClient {
   }
 
   /**
-   * Summarizes messages that don't fit in context window.
-   * Supports both incremental summarization (default) and full compression (checkpoint mode).
+   * Summarizes messages using full compression with recency weighting.
+   * Always uses checkpoint-based compression: compresses ALL messages with [RECENT]/[OLD] markers.
    * @param {Object} params
    * @param {TMessage[]} params.messagesToRefine - Messages to summarize
-   * @param {string} [params.previousSummary] - Previous summary content for full compression
+   * @param {string} [params.previousSummary] - Previous summary content to integrate
    * @param {number} params.remainingContextTokens - Remaining tokens available
-   * @param {boolean} [params.fullCompression=false] - Whether to use checkpoint-based full compression
    * @returns {Promise<{summaryMessage: {role: string, content: string} | null, summaryTokenCount: number}>}
    */
-  async summarizeMessages({
-    messagesToRefine,
-    previousSummary,
-    remainingContextTokens,
-    fullCompression = false,
-  }) {
+  async summarizeMessages({ messagesToRefine, previousSummary, remainingContextTokens }) {
     logger.debug('[AgentClient] summarizeMessages called', {
       messagesToRefineCount: messagesToRefine.length,
       remainingContextTokens,
       summaryModel: this.summaryModel,
-      fullCompression,
       hasPreviousSummary: !!previousSummary,
     });
 
@@ -871,64 +864,35 @@ class AgentClient extends BaseClient {
     }
 
     try {
-      let prompt;
+      const { RECENT_MESSAGE_COUNT, MAX_SUMMARY_TOKENS } = SUMMARIZATION_CONSTANTS;
 
-      if (fullCompression) {
-        // Full compression mode: use weighted prompt with recency markers
-        const { RECENT_MESSAGE_COUNT } = SUMMARIZATION_CONSTANTS;
+      // Format messages with recency markers
+      const formattedMessages = messagesToRefine
+        .map((msg, idx) => {
+          const isRecent = idx >= messagesToRefine.length - RECENT_MESSAGE_COUNT;
+          const marker = isRecent ? '[RECENT]' : '[OLD]';
+          const role = msg.isCreatedByUser || msg.role === 'user' ? 'Human' : 'AI';
+          const content =
+            typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+          // Use text if content is not available (for TMessage format)
+          const textContent = content || msg.text || '';
+          return `${marker} ${role}: ${textContent}`;
+        })
+        .join('\n');
 
-        // Format messages with recency markers
-        const formattedMessages = messagesToRefine
-          .map((msg, idx) => {
-            const isRecent = idx >= messagesToRefine.length - RECENT_MESSAGE_COUNT;
-            const marker = isRecent ? '[RECENT]' : '[OLD]';
-            const role = msg.isCreatedByUser || msg.role === 'user' ? 'Human' : 'AI';
-            const content =
-              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-            // Use text if content is not available (for TMessage format)
-            const textContent = content || msg.text || '';
-            return `${marker} ${role}: ${textContent}`;
-          })
-          .join('\n');
+      const prevSummary =
+        previousSummary || this.previous_summary?.summary || 'No previous summary.';
 
-        const prevSummary =
-          previousSummary || this.previous_summary?.summary || 'No previous summary.';
+      const prompt = await WEIGHTED_SUMMARY_PROMPT.format({
+        previous_summary: prevSummary,
+        messages: formattedMessages,
+      });
 
-        prompt = await WEIGHTED_SUMMARY_PROMPT.format({
-          previous_summary: prevSummary,
-          messages: formattedMessages,
-        });
-
-        logger.debug('[AgentClient] Full compression prompt prepared', {
-          promptLength: prompt.length,
-          recentMessages: Math.min(RECENT_MESSAGE_COUNT, messagesToRefine.length),
-          oldMessages: Math.max(0, messagesToRefine.length - RECENT_MESSAGE_COUNT),
-        });
-      } else {
-        // Incremental summarization mode (original behavior)
-        const newLines = messagesToRefine
-          .map((msg) => {
-            const role = msg.isCreatedByUser || msg.role === 'user' ? 'Human' : 'AI';
-            const content =
-              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
-            const textContent = content || msg.text || '';
-            return `${role}: ${textContent}`;
-          })
-          .join('\n');
-
-        const currentSummary = this.previous_summary?.summary || '';
-
-        prompt = await SUMMARY_PROMPT.format({
-          summary: currentSummary || 'No previous summary.',
-          new_lines: newLines,
-        });
-
-        logger.debug('[AgentClient] Incremental summarization prompt prepared', {
-          promptLength: prompt.length,
-          newLinesLength: newLines.length,
-          hasPreviousSummary: !!currentSummary,
-        });
-      }
+      logger.debug('[AgentClient] Compression prompt prepared', {
+        promptLength: prompt.length,
+        recentMessages: Math.min(RECENT_MESSAGE_COUNT, messagesToRefine.length),
+        oldMessages: Math.max(0, messagesToRefine.length - RECENT_MESSAGE_COUNT),
+      });
 
       // Use summaryModel if specified, otherwise use current model
       const modelToUse = this.summaryModel || this.model;
@@ -943,11 +907,8 @@ class AgentClient extends BaseClient {
       const apiKey =
         this.options.agent?.model_parameters?.configuration?.apiKey || process.env.OPENROUTER_KEY;
 
-      // Cap summary tokens at MAX_SUMMARY_TOKENS for full compression
-      const { MAX_SUMMARY_TOKENS } = SUMMARIZATION_CONSTANTS;
-      const maxTokensForSummary = fullCompression
-        ? Math.min(MAX_SUMMARY_TOKENS, remainingContextTokens - 100)
-        : Math.min(500, remainingContextTokens - 100);
+      // Cap summary tokens at MAX_SUMMARY_TOKENS
+      const maxTokensForSummary = Math.min(MAX_SUMMARY_TOKENS, remainingContextTokens - 100);
 
       const summaryLLM = new ChatOpenAI({
         modelName: modelToUse,
@@ -963,7 +924,6 @@ class AgentClient extends BaseClient {
         modelToUse,
         baseURL,
         maxTokensForSummary,
-        fullCompression,
       });
 
       const response = await summaryLLM.invoke(prompt);
@@ -971,7 +931,6 @@ class AgentClient extends BaseClient {
 
       logger.debug('[AgentClient] Summarization complete', {
         summaryLength: summaryContent.length,
-        fullCompression,
       });
 
       // Calculate token count for the summary
@@ -987,7 +946,6 @@ class AgentClient extends BaseClient {
         summaryTokenCount,
         tokensSaved:
           messagesToRefine.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount,
-        fullCompression,
       });
 
       return { summaryMessage, summaryTokenCount };
