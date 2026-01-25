@@ -47,7 +47,35 @@ const CUT_OFF_PROMPT = new PromptTemplate({
   template: _CUT_OFF_SUMMARIZER,
 });
 
+/*
+ * Token count without variables: ~120 tokens
+ * This prompt is used for checkpoint-based compression at 50% context capacity
+ * It emphasizes recent messages while condensing older ones
+ */
+const _WEIGHTED_SUMMARIZER_TEMPLATE = `Summarize this conversation, giving MORE DETAIL to [RECENT] messages and LESS DETAIL to [OLD] ones.
+
+RULES:
+1. [RECENT] messages: Summarize in detail with key specifics, data, and context
+2. [OLD] messages: Condense to essential points only (1 sentence max each)
+3. Previous summary: Integrate and compress further - keep only what's still relevant
+4. PRESERVE: user intent, key decisions, data/results, tool outputs, action items
+5. DISCARD: pleasantries, repetitive exchanges, verbose explanations
+
+Previous Summary (compress this further):
+{previous_summary}
+
+Conversation (oldest to newest, markers indicate detail level):
+{messages}
+
+Write a summary that prioritizes recent context while preserving essential history:`;
+
+const WEIGHTED_SUMMARY_PROMPT = new PromptTemplate({
+  inputVariables: ['previous_summary', 'messages'],
+  template: _WEIGHTED_SUMMARIZER_TEMPLATE,
+});
+
 module.exports = {
   SUMMARY_PROMPT,
   CUT_OFF_PROMPT,
+  WEIGHTED_SUMMARY_PROMPT,
 };

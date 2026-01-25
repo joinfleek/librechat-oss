@@ -253,6 +253,20 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
       modelLabel: endpointOption.model_parameters.modelLabel,
     });
 
+  // Determine summarization config from endpoint
+  const shouldSummarize = endpointConfig?.summarize === true;
+  const contextStrategy = shouldSummarize ? 'summarize' : 'discard';
+  const summaryModel = endpointConfig?.summaryModel;
+  const compressionThreshold = endpointConfig?.compressionThreshold ?? 0.5;
+
+  logger.info('[initializeClient] Summarization config', {
+    contextStrategy,
+    shouldSummarize,
+    summaryModel,
+    compressionThreshold,
+    maxContextTokens: primaryConfig.maxContextTokens,
+  });
+
   const client = new AgentClient({
     req,
     res,
@@ -269,6 +283,10 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
     attachments: primaryConfig.attachments,
     endpointType: endpointOption.endpointType,
     resendFiles: primaryConfig.resendFiles ?? true,
+    // Summarization options
+    contextStrategy,
+    summaryModel,
+    compressionThreshold,
     maxContextTokens: primaryConfig.maxContextTokens,
     endpoint:
       primaryConfig.id === Constants.EPHEMERAL_AGENT_ID

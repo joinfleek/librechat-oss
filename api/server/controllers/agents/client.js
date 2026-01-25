@@ -43,6 +43,17 @@ const {
 const { spendTokens, spendStructuredTokens } = require('~/models/spendTokens');
 const { encodeAndFormat } = require('~/server/services/Files/images/encode');
 const { createContextHandlers } = require('~/app/clients/prompts');
+const { SUMMARY_PROMPT, WEIGHTED_SUMMARY_PROMPT } = require('~/app/clients/prompts/summaryPrompts');
+
+/**
+ * Constants for checkpoint-based summarization
+ */
+const SUMMARIZATION_CONSTANTS = {
+  /** Number of messages to mark as [RECENT] for detailed summarization */
+  RECENT_MESSAGE_COUNT: 5,
+  /** Maximum tokens for summary output */
+  MAX_SUMMARY_TOKENS: 2000,
+};
 const { checkCapability } = require('~/server/services/Config');
 const { getConvoFiles } = require('~/models/Conversation');
 const BaseClient = require('~/app/clients/BaseClient');
@@ -157,8 +168,8 @@ class AgentClient extends BaseClient {
      * @type {string} */
     this.clientName = EModelEndpoint.agents;
 
-    /** @type {'discard' | 'summarize'} */
-    this.contextStrategy = 'discard';
+    /** @type {'discard' | 'summarize'} - Set from options below */
+    // this.contextStrategy moved to options destructuring
 
     /** @deprecated @type {true} - Is a Chat Completion Request */
     this.isChatCompletion = true;
@@ -172,11 +183,20 @@ class AgentClient extends BaseClient {
       collectedUsage,
       artifactPromises,
       maxContextTokens,
+      contextStrategy,
+      summaryModel,
+      compressionThreshold,
       ...clientOptions
     } = options;
 
     this.agentConfigs = agentConfigs;
     this.maxContextTokens = maxContextTokens;
+
+    // Summarization config
+    this.contextStrategy = contextStrategy ?? 'discard';
+    this.shouldSummarize = this.contextStrategy === 'summarize';
+    this.summaryModel = summaryModel;
+    this.compressionThreshold = compressionThreshold ?? 0.5;
     /** @type {MessageContentComplex[]} */
     this.contentParts = contentParts;
     /** @type {Array<UsageMetadata>} */
@@ -428,11 +448,30 @@ class AgentClient extends BaseClient {
     /** @type {Record<string, number> | undefined} */
     let tokenCountMap;
 
+    // Calculate total tokens in ordered messages
+    const totalMessageTokens = orderedMessages.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
+
+    logger.debug('[AgentClient] Context Strategy Config', {
+      contextStrategy: this.contextStrategy,
+      shouldSummarize: this.shouldSummarize,
+      maxContextTokens: this.maxContextTokens,
+      messageCount: orderedMessages.length,
+      totalMessageTokens,
+      willTriggerSummarization: this.shouldSummarize && totalMessageTokens > this.maxContextTokens,
+      summaryModel: this.summaryModel,
+    });
+
     if (this.contextStrategy) {
+      logger.debug('[AgentClient] Invoking handleContextStrategy...');
       ({ payload, promptTokens, tokenCountMap, messages } = await this.handleContextStrategy({
         orderedMessages,
         formattedMessages,
       }));
+      logger.debug('[AgentClient] Context Strategy Result', {
+        payloadSize: payload?.length,
+        promptTokens,
+        messagesProcessed: messages?.length,
+      });
     }
 
     for (let i = 0; i < messages.length; i++) {
@@ -804,6 +843,162 @@ class AgentClient extends BaseClient {
   }
 
   /**
+   * Summarizes messages that don't fit in context window.
+   * Supports both incremental summarization (default) and full compression (checkpoint mode).
+   * @param {Object} params
+   * @param {TMessage[]} params.messagesToRefine - Messages to summarize
+   * @param {string} [params.previousSummary] - Previous summary content for full compression
+   * @param {number} params.remainingContextTokens - Remaining tokens available
+   * @param {boolean} [params.fullCompression=false] - Whether to use checkpoint-based full compression
+   * @returns {Promise<{summaryMessage: {role: string, content: string} | null, summaryTokenCount: number}>}
+   */
+  async summarizeMessages({
+    messagesToRefine,
+    previousSummary,
+    remainingContextTokens,
+    fullCompression = false,
+  }) {
+    logger.debug('[AgentClient] summarizeMessages called', {
+      messagesToRefineCount: messagesToRefine.length,
+      remainingContextTokens,
+      summaryModel: this.summaryModel,
+      fullCompression,
+      hasPreviousSummary: !!previousSummary,
+    });
+
+    if (!messagesToRefine || messagesToRefine.length === 0) {
+      return { summaryMessage: null, summaryTokenCount: 0 };
+    }
+
+    try {
+      let prompt;
+
+      if (fullCompression) {
+        // Full compression mode: use weighted prompt with recency markers
+        const { RECENT_MESSAGE_COUNT } = SUMMARIZATION_CONSTANTS;
+
+        // Format messages with recency markers
+        const formattedMessages = messagesToRefine
+          .map((msg, idx) => {
+            const isRecent = idx >= messagesToRefine.length - RECENT_MESSAGE_COUNT;
+            const marker = isRecent ? '[RECENT]' : '[OLD]';
+            const role = msg.isCreatedByUser || msg.role === 'user' ? 'Human' : 'AI';
+            const content =
+              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            // Use text if content is not available (for TMessage format)
+            const textContent = content || msg.text || '';
+            return `${marker} ${role}: ${textContent}`;
+          })
+          .join('\n');
+
+        const prevSummary =
+          previousSummary || this.previous_summary?.summary || 'No previous summary.';
+
+        prompt = await WEIGHTED_SUMMARY_PROMPT.format({
+          previous_summary: prevSummary,
+          messages: formattedMessages,
+        });
+
+        logger.debug('[AgentClient] Full compression prompt prepared', {
+          promptLength: prompt.length,
+          recentMessages: Math.min(RECENT_MESSAGE_COUNT, messagesToRefine.length),
+          oldMessages: Math.max(0, messagesToRefine.length - RECENT_MESSAGE_COUNT),
+        });
+      } else {
+        // Incremental summarization mode (original behavior)
+        const newLines = messagesToRefine
+          .map((msg) => {
+            const role = msg.isCreatedByUser || msg.role === 'user' ? 'Human' : 'AI';
+            const content =
+              typeof msg.content === 'string' ? msg.content : JSON.stringify(msg.content);
+            const textContent = content || msg.text || '';
+            return `${role}: ${textContent}`;
+          })
+          .join('\n');
+
+        const currentSummary = this.previous_summary?.summary || '';
+
+        prompt = await SUMMARY_PROMPT.format({
+          summary: currentSummary || 'No previous summary.',
+          new_lines: newLines,
+        });
+
+        logger.debug('[AgentClient] Incremental summarization prompt prepared', {
+          promptLength: prompt.length,
+          newLinesLength: newLines.length,
+          hasPreviousSummary: !!currentSummary,
+        });
+      }
+
+      // Use summaryModel if specified, otherwise use current model
+      const modelToUse = this.summaryModel || this.model;
+
+      // Make API call for summarization using the existing model infrastructure
+      const { ChatOpenAI } = require('@langchain/openai');
+
+      // Get the base configuration from the current agent
+      const baseURL =
+        this.options.agent?.model_parameters?.configuration?.baseURL ||
+        'https://openrouter.ai/api/v1';
+      const apiKey =
+        this.options.agent?.model_parameters?.configuration?.apiKey || process.env.OPENROUTER_KEY;
+
+      // Cap summary tokens at MAX_SUMMARY_TOKENS for full compression
+      const { MAX_SUMMARY_TOKENS } = SUMMARIZATION_CONSTANTS;
+      const maxTokensForSummary = fullCompression
+        ? Math.min(MAX_SUMMARY_TOKENS, remainingContextTokens - 100)
+        : Math.min(500, remainingContextTokens - 100);
+
+      const summaryLLM = new ChatOpenAI({
+        modelName: modelToUse,
+        configuration: {
+          baseURL,
+          apiKey,
+        },
+        maxTokens: maxTokensForSummary,
+        temperature: 0.3, // Lower temperature for more consistent summaries
+      });
+
+      logger.debug('[AgentClient] Calling summarization LLM', {
+        modelToUse,
+        baseURL,
+        maxTokensForSummary,
+        fullCompression,
+      });
+
+      const response = await summaryLLM.invoke(prompt);
+      const summaryContent = response.content?.toString() || '';
+
+      logger.debug('[AgentClient] Summarization complete', {
+        summaryLength: summaryContent.length,
+        fullCompression,
+      });
+
+      // Calculate token count for the summary
+      const summaryTokenCount = this.getTokenCount(summaryContent) + 10; // +10 for role/formatting
+
+      const summaryMessage = {
+        role: 'system',
+        content: `Previous conversation summary:\n${summaryContent}`,
+      };
+
+      logger.info('[AgentClient] Summarization successful', {
+        originalMessages: messagesToRefine.length,
+        summaryTokenCount,
+        tokensSaved:
+          messagesToRefine.reduce((sum, m) => sum + (m.tokenCount || 0), 0) - summaryTokenCount,
+        fullCompression,
+      });
+
+      return { summaryMessage, summaryTokenCount };
+    } catch (error) {
+      logger.error('[AgentClient] Summarization failed', error);
+      // Return null to fall back to discard strategy
+      return { summaryMessage: null, summaryTokenCount: 0 };
+    }
+  }
+
+  /**
    * Calculates the correct token count for the current user message based on the token count map and API usage.
    * Edge case: If the calculation results in a negative value, it returns the original estimate.
    * If revisiting a conversation with a chat history entirely composed of token estimates,
@@ -959,6 +1154,30 @@ class AgentClient extends BaseClient {
 
         /** @deprecated Agent Chain */
         config.configurable.last_agent_id = agents[agents.length - 1].id;
+
+        // Debug: Dump entire LLM call payload
+        logger.debug('[AgentClient] LLM Call Payload', {
+          messageCount: messages.length,
+          messages: messages.map((m, i) => ({
+            index: i,
+            type: m.constructor?.name || typeof m,
+            role: m._getType?.() || m.role,
+            contentLength: typeof m.content === 'string' ? m.content.length : JSON.stringify(m.content).length,
+            contentPreview: typeof m.content === 'string'
+              ? m.content.substring(0, 200) + (m.content.length > 200 ? '...' : '')
+              : '[complex content]',
+          })),
+        });
+        logger.debug('[AgentClient] LLM Call Config', {
+          model: agents[0]?.model_parameters?.model,
+          recursionLimit: config.recursionLimit,
+          agentId: agents[0]?.id,
+          agentName: agents[0]?.name,
+          instructionsLength: agents[0]?.instructions?.length || 0,
+          toolCount: agents[0]?.tools?.length || 0,
+          tools: agents[0]?.tools?.map(t => t.name || t.function?.name || 'unknown') || [],
+        });
+
         await run.processStream({ messages }, config, {
           callbacks: {
             [Callback.TOOL_ERROR]: logToolError,
