@@ -635,14 +635,8 @@ class BaseClient {
         summaryTokenCount = firstMessage.summaryTokenCount;
         payload.unshift(summaryMessage);
         remainingContextTokens -= summaryTokenCount;
-      } else if (shouldSummarize && messagesToRefine.length > 0) {
-        ({ summaryMessage, summaryTokenCount } = await this.summarizeMessages({
-          messagesToRefine,
-          remainingContextTokens,
-        }));
-        summaryMessage && payload.unshift(summaryMessage);
-        remainingContextTokens -= summaryTokenCount;
       }
+      // Note: Incremental summarization removed - we only use full checkpoint compression
     }
 
     // Make sure to only continue summarization logic if the summary message was generated
