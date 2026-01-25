@@ -42,7 +42,7 @@ const SUMMARIZATION_CONSTANTS = {
   /** Number of messages to mark as [RECENT] for detailed summarization */
   RECENT_MESSAGE_COUNT: 5,
   /** Maximum tokens for summary output */
-  MAX_SUMMARY_TOKENS: 2000,
+  MAX_SUMMARY_TOKENS: 10000,
 };
 
 class BaseClient {

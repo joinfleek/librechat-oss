@@ -1,0 +1,33 @@
+# LibreChat-OSS Custom Build
+# Builds from joinfleek/librechat-oss fork with summarization features
+#
+# To trigger manually:
+#   cd /Users/sanket/workspace/librechat-oss
+#   gcloud builds submit --config=deploy/cloudbuild.yaml --project=dogwood-baton-345622 .
+#
+# After build completes, deploy with fleek-agent:
+#   cd /Users/sanket/workspace/librechat
+#   gcloud builds submit --config=deploy/cloudbuild.yaml --project=dogwood-baton-345622 .
+
+steps:
+  # Build the full LibreChat image from source
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/dogwood-baton-345622/librechat/librechat-oss:latest'
+      - '-t'
+      - 'us-central1-docker.pkg.dev/dogwood-baton-345622/librechat/librechat-oss:${SHORT_SHA}'
+      - '-f'
+      - 'Dockerfile'
+      - '.'
+
+images:
+  - 'us-central1-docker.pkg.dev/dogwood-baton-345622/librechat/librechat-oss:latest'
+  - 'us-central1-docker.pkg.dev/dogwood-baton-345622/librechat/librechat-oss:${SHORT_SHA}'
+
+options:
+  machineType: 'E2_HIGHCPU_8'
+  logging: CLOUD_LOGGING_ONLY
+
+timeout: '3600s'  # 1 hour - full build takes time

@@ -19,7 +19,7 @@ describe('Checkpoint Summarization Logic', () => {
   const SUMMARIZATION_CONSTANTS = {
     DEFAULT_COMPRESSION_THRESHOLD: 0.5,
     RECENT_MESSAGE_COUNT: 5,
-    MAX_SUMMARY_TOKENS: 2000,
+    MAX_SUMMARY_TOKENS: 10000,
   };
 
   describe('Compression Threshold Calculation', () => {
@@ -261,14 +261,14 @@ describe('Checkpoint Summarization Logic', () => {
   describe('Summary Token Cap', () => {
     it('should cap summary tokens at MAX_SUMMARY_TOKENS for full compression', () => {
       const { MAX_SUMMARY_TOKENS } = SUMMARIZATION_CONSTANTS;
-      const remainingContextTokens = 5000;
+      const remainingContextTokens = 50000; // Large enough to hit the cap
 
       const maxTokensForSummary = Math.min(
         MAX_SUMMARY_TOKENS,
         remainingContextTokens - 100,
       );
 
-      expect(maxTokensForSummary).toBe(2000);
+      expect(maxTokensForSummary).toBe(10000);
     });
 
     it('should use remaining tokens if less than MAX_SUMMARY_TOKENS', () => {
