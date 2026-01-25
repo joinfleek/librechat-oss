@@ -595,12 +595,6 @@ class BaseClient {
       let { length } = formattedMessages;
       length += instructions != null ? 1 : 0;
       const diff = length - context.length;
-      const firstMessage = orderedWithInstructions[0];
-      const usePrevSummary =
-        shouldSummarize &&
-        diff === 1 &&
-        firstMessage?.summary &&
-        this.previous_summary?.messageId === firstMessage.messageId;
 
       if (diff > 0) {
         payload = formattedMessages.slice(diff);
@@ -630,13 +624,7 @@ class BaseClient {
         throw new Error(errorMessage);
       }
 
-      if (usePrevSummary) {
-        summaryMessage = { role: 'system', content: firstMessage.summary };
-        summaryTokenCount = firstMessage.summaryTokenCount;
-        payload.unshift(summaryMessage);
-        remainingContextTokens -= summaryTokenCount;
-      }
-      // Note: Incremental summarization removed - we only use full checkpoint compression
+      // Note: Legacy summarization removed - we only use full checkpoint compression
     }
 
     // Make sure to only continue summarization logic if the summary message was generated
