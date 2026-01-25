@@ -557,12 +557,18 @@ class BaseClient {
     // Summarize all messages up to (not including) the latest
     // ============================================
     if (shouldCreateCheckpoint) {
-      // Summarize all messages BEFORE the latest user message
-      const messagesToSummarize = orderedMessages.slice(0, -1);
+      // Summarize messages from AFTER the last checkpoint to BEFORE the latest message
+      // The previousSummary already contains history before the checkpoint
+      const messagesToSummarize =
+        checkpointIndex >= 0
+          ? orderedMessages.slice(checkpointIndex + 1, -1) // From after checkpoint to before latest
+          : orderedMessages.slice(0, -1); // No checkpoint, summarize all except latest
+
       const availableTokens = this.maxContextTokens - instructionsTokenCount - 100;
 
       logger.info('[BaseClient] Creating new checkpoint', {
         messagesToSummarize: messagesToSummarize.length,
+        checkpointIndex,
         previousSummaryLength: lastSummary.length,
         availableTokens,
       });
