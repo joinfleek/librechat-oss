@@ -313,6 +313,10 @@ class AgentClient extends BaseClient {
       summary: this.shouldSummarize,
     });
 
+    // DEBUG: Log token counts after getMessagesForConversation
+    const tokensBefore = orderedMessages.map(m => m.tokenCount || 0);
+    logger.info(`[AgentClient] After getMessagesForConversation: msgCount=${orderedMessages.length}, tokenCounts=[${tokensBefore.join(',')}], total=${tokensBefore.reduce((a,b)=>a+b,0)}`);
+
     orderedMessages = applyAgentLabelsToHistory(
       orderedMessages,
       this.options.agent,
@@ -380,7 +384,9 @@ class AgentClient extends BaseClient {
 
       /* If tokens were never counted, or, is a Vision request and the message has files, count again */
       if (needsTokenCount || (this.isVisionModel && (message.image_urls || message.files))) {
+        const oldCount = orderedMessages[i].tokenCount;
         orderedMessages[i].tokenCount = this.getTokenCountForMessage(formattedMessage);
+        logger.info(`[AgentClient] Recounted msg ${i}: ${oldCount} -> ${orderedMessages[i].tokenCount} (needsTokenCount=${needsTokenCount}, contextStrategy=${this.contextStrategy}, hadTokenCount=${!!oldCount})`);
       }
 
       /* If message has files, calculate image token cost */
