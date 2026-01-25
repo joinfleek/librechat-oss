@@ -345,12 +345,14 @@ class STTService {
       logAxiosError({ message: 'An error occurred while processing the audio:', error });
       res.sendStatus(500);
     } finally {
-      try {
-        await fs.unlink(req.file.path);
-        logger.debug('[/speech/stt] Temp. audio upload file deleted');
-      } catch {
-        logger.debug('[/speech/stt] Temp. audio upload file already deleted');
-      }
+      // Temporarily keeping files for debugging
+      logger.info(`[/speech/stt] Audio file kept for debugging: ${req.file.path}`);
+      // try {
+      //   await fs.unlink(req.file.path);
+      //   logger.debug('[/speech/stt] Temp. audio upload file deleted');
+      // } catch {
+      //   logger.debug('[/speech/stt] Temp. audio upload file already deleted');
+      // }
     }
   }
 }

@@ -259,13 +259,7 @@ const initializeClient = async ({ req, res, signal, endpointOption }) => {
   const summaryModel = endpointConfig?.summaryModel;
   const compressionThreshold = endpointConfig?.compressionThreshold ?? 0.5;
 
-  logger.info('[initializeClient] Summarization config', {
-    contextStrategy,
-    shouldSummarize,
-    summaryModel,
-    compressionThreshold,
-    maxContextTokens: primaryConfig.maxContextTokens,
-  });
+  logger.info(`[initializeClient] Summarization config: shouldSummarize=${shouldSummarize}, contextStrategy=${contextStrategy}, summaryModel=${summaryModel}, compressionThreshold=${compressionThreshold}, maxContextTokens=${primaryConfig.maxContextTokens}`);
 
   const client = new AgentClient({
     req,

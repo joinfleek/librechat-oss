@@ -146,6 +146,19 @@ export async function createRun({
       maxContextTokens: agent.maxContextTokens,
       useLegacyContent: agent.useLegacyContent ?? false,
     };
+
+    // Debug: Log agent input for LLM call analysis
+    console.log('[createRun] Agent Input:', {
+      agentId: agent.id,
+      provider,
+      model: llmConfig.model || llmConfig.modelName,
+      instructionsLength: systemContent?.length || 0,
+      instructionsPreview: systemContent?.substring(0, 500) || '[none]',
+      toolContextMapKeys: Object.keys(agent.toolContextMap ?? {}),
+      toolCount: agent.tools?.length || 0,
+      maxContextTokens: agent.maxContextTokens,
+    });
+
     agentInputs.push(agentInput);
   };
 

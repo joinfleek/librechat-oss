@@ -4,6 +4,7 @@ import type { Artifact } from '~/common';
 import { getKey, getProps, getTemplate, getArtifactFilename } from '~/utils/artifacts';
 import { getMermaidFiles } from '~/utils/mermaid';
 import { getMarkdownFiles } from '~/utils/markdown';
+import { getPdfFiles } from '~/utils/pdf';
 
 export default function useArtifactProps({ artifact }: { artifact: Artifact }) {
   const [fileKey, files] = useMemo(() => {
@@ -12,6 +13,10 @@ export default function useArtifactProps({ artifact }: { artifact: Artifact }) {
 
     if (key.includes('mermaid')) {
       return ['diagram.mmd', getMermaidFiles(artifact.content ?? '')];
+    }
+
+    if (type === 'application/vnd.pdf') {
+      return ['App.tsx', getPdfFiles(artifact.content ?? '')];
     }
 
     if (type === 'text/markdown' || type === 'text/md' || type === 'text/plain') {

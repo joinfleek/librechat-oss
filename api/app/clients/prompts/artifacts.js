@@ -65,6 +65,33 @@ Artifacts are for substantial, self-contained content that users might modify or
       - NO OTHER LIBRARIES (e.g. zod, hookform) ARE INSTALLED OR ABLE TO BE IMPORTED.
       - Images from the web are not allowed, but you can use placeholder images by specifying the width and height like so \`<img src="/api/placeholder/400/320" alt="placeholder" />\`
       - If you are unable to follow the above requirements for any reason, don't use artifacts and use regular code blocks instead, which will not attempt to render the component.
+    - PDF Documents: "application/vnd.pdf"
+      - Use @react-pdf/renderer to create PDF documents that render in the artifact viewer.
+      - You MUST export a component named \`MyDocument\` using \`export const MyDocument\`.
+      - Available imports from '@react-pdf/renderer': Document, Page, Text, View, Image, StyleSheet, Font, Link.
+      - Use StyleSheet.create() for styling, similar to React Native.
+      - Example:
+        \`\`\`
+        import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+
+        const styles = StyleSheet.create({
+          page: { padding: 30, backgroundColor: '#ffffff' },
+          title: { fontSize: 24, marginBottom: 10, fontWeight: 'bold' },
+          text: { fontSize: 12, marginBottom: 5 },
+        });
+
+        export const MyDocument = () => (
+          <Document>
+            <Page size="A4" style={styles.page}>
+              <Text style={styles.title}>Document Title</Text>
+              <View>
+                <Text style={styles.text}>This is a PDF document.</Text>
+              </View>
+            </Page>
+          </Document>
+        );
+        \`\`\`
+      - Common page sizes: A4, LETTER, LEGAL, or custom { width, height } in points.
   5. Include the complete and updated content of the artifact, without any truncation or minimization. Don't use "// rest of the code remains the same...".
   6. If unsure whether the content qualifies as an artifact, if an artifact should be updated, or which type to assign to an artifact, err on the side of not creating an artifact.
   7. Always use triple backticks (\`\`\`) to enclose the content within the artifact, regardless of the content type.
@@ -189,6 +216,33 @@ Artifacts are for substantial, self-contained content that users might modify or
       - Images from the web are not allowed, but you can use placeholder images by specifying the width and height like so \`<img src="/api/placeholder/400/320" alt="placeholder" />\`
       - When iterating on code, ensure that the code is complete and functional without any snippets, placeholders, or ellipses.
       - If you are unable to follow the above requirements for any reason, don't use artifacts and use regular code blocks instead, which will not attempt to render the component.
+    - PDF Documents: "application/vnd.pdf"
+      - Use @react-pdf/renderer to create PDF documents that render in the artifact viewer.
+      - You MUST export a component named \`MyDocument\` using \`export const MyDocument\`.
+      - Available imports from '@react-pdf/renderer': Document, Page, Text, View, Image, StyleSheet, Font, Link.
+      - Use StyleSheet.create() for styling, similar to React Native.
+      - Example:
+        \`\`\`
+        import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+
+        const styles = StyleSheet.create({
+          page: { padding: 30, backgroundColor: '#ffffff' },
+          title: { fontSize: 24, marginBottom: 10, fontWeight: 'bold' },
+          text: { fontSize: 12, marginBottom: 5 },
+        });
+
+        export const MyDocument = () => (
+          <Document>
+            <Page size="A4" style={styles.page}>
+              <Text style={styles.title}>Document Title</Text>
+              <View>
+                <Text style={styles.text}>This is a PDF document.</Text>
+              </View>
+            </Page>
+          </Document>
+        );
+        \`\`\`
+      - Common page sizes: A4, LETTER, LEGAL, or custom { width, height } in points.
   5. Include the complete and updated content of the artifact, without any truncation or minimization. Don't use "// rest of the code remains the same...".
   6. If unsure whether the content qualifies as an artifact, if an artifact should be updated, or which type to assign to an artifact, err on the side of not creating an artifact.
   7. Always use triple backticks (\`\`\`) to enclose the content within the artifact, regardless of the content type.

@@ -161,6 +161,52 @@ function getDefaultHandlers({ res, aggregateContent, toolEndCallback, collectedU
     );
   }
   const handlers = {
+    [GraphEvents.CHAT_MODEL_START]: {
+      /**
+       * Handle CHAT_MODEL_START event - logs the full payload being sent to the LLM.
+       * @param {string} event - The event name.
+       * @param {object} data - The event data containing messages and config.
+       */
+      handle: (event, data) => {
+        // Dump raw structure to understand the format
+        logger.debug('[LLM_CALL] CHAT_MODEL_START - Raw Keys', {
+          topLevelKeys: Object.keys(data || {}),
+          hasMessages: !!data?.messages,
+          hasInput: !!data?.input,
+          inputKeys: data?.input ? Object.keys(data.input) : [],
+        });
+
+        // Try to find messages in various places
+        let messages = data?.messages;
+        if (!messages && Array.isArray(data?.input)) {
+          messages = data.input;
+        } else if (!messages && data?.input?.messages) {
+          messages = data.input.messages;
+        }
+
+        // If messages is an array of arrays, flatten
+        if (Array.isArray(messages) && messages.length > 0 && Array.isArray(messages[0])) {
+          messages = messages[0];
+        }
+
+        logger.debug('[LLM_CALL] CHAT_MODEL_START - Full Payload', {
+          model: data?.name || data?.serialized?.kwargs?.model || 'unknown',
+          messageCount: Array.isArray(messages) ? messages.length : 'N/A',
+          messages: Array.isArray(messages) ? messages.map((m, i) => ({
+            index: i,
+            type: m?.constructor?.name || m?._getType?.() || m?.type || typeof m,
+            role: m?.role || m?._getType?.() || 'unknown',
+            contentLength: typeof m?.content === 'string' ? m.content.length : JSON.stringify(m?.content || '').length,
+            contentPreview: typeof m?.content === 'string'
+              ? m.content.substring(0, 500) + (m.content.length > 500 ? '...' : '')
+              : JSON.stringify(m?.content || '').substring(0, 500),
+          })) : messages,
+          totalContentLength: Array.isArray(messages)
+            ? messages.reduce((sum, m) => sum + (typeof m?.content === 'string' ? m.content.length : JSON.stringify(m?.content || '').length), 0)
+            : 0,
+        });
+      },
+    },
     [GraphEvents.CHAT_MODEL_END]: new ModelEndHandler(collectedUsage),
     [GraphEvents.TOOL_END]: new ToolEndHandler(toolEndCallback, logger),
     [GraphEvents.CHAT_MODEL_STREAM]: new ChatModelStreamHandler(),

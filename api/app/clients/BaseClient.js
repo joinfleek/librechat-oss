@@ -526,14 +526,7 @@ class BaseClient {
       0,
     );
 
-    logger.info('[BaseClient] Checkpoint analysis', {
-      checkpointFound: checkpointIndex >= 0,
-      checkpointIndex,
-      totalMessages: orderedMessages.length,
-      messagesAfterCheckpoint: messagesAfterCheckpoint.length,
-      tokensSinceCheckpoint,
-      lastSummaryTokenCount,
-    });
+    logger.info(`[BaseClient] Checkpoint analysis: checkpointFound=${checkpointIndex >= 0}, checkpointIndex=${checkpointIndex}, totalMessages=${orderedMessages.length}, messagesAfterCheckpoint=${messagesAfterCheckpoint.length}, tokensSinceCheckpoint=${tokensSinceCheckpoint}, lastSummaryTokenCount=${lastSummaryTokenCount}`);
 
     // ============================================
     // STEP 3: Check if new checkpoint is needed
@@ -545,12 +538,7 @@ class BaseClient {
     const shouldCreateCheckpoint =
       this.shouldSummarize && tokensSinceCheckpoint > threshold && messagesAfterCheckpoint.length > 1;
 
-    logger.info('[BaseClient] Compression check', {
-      tokensSinceCheckpoint,
-      threshold: Math.floor(threshold),
-      shouldCreateCheckpoint,
-      shouldSummarize: this.shouldSummarize,
-    });
+    logger.info(`[BaseClient] Compression check: tokensSinceCheckpoint=${tokensSinceCheckpoint}, threshold=${Math.floor(threshold)}, shouldCreateCheckpoint=${shouldCreateCheckpoint}, shouldSummarize=${this.shouldSummarize}, maxContextTokens=${this.maxContextTokens}`);
 
     // ============================================
     // STEP 4: Create new checkpoint if needed

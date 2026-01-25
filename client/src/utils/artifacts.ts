@@ -9,6 +9,7 @@ const artifactFilename = {
   'application/vnd.react': 'App.tsx',
   'text/html': 'index.html',
   'application/vnd.code-html': 'index.html',
+  'application/vnd.pdf': 'App.tsx',
   // mermaid and markdown types are handled separately in useArtifactProps.ts
   default: 'index.html',
   // 'css': 'css',
@@ -30,6 +31,7 @@ const artifactTemplate: Record<
   'application/vnd.react': 'react-ts',
   'application/vnd.mermaid': 'react-ts',
   'application/vnd.code-html': 'static',
+  'application/vnd.pdf': 'react-ts',
   'text/markdown': 'react-ts',
   'text/md': 'react-ts',
   'text/plain': 'react-ts',
@@ -109,6 +111,10 @@ const markdownDependencies = {
   'marked-react': '^2.0.0',
 };
 
+const pdfDependencies = {
+  '@react-pdf/renderer': '^4.1.6',
+};
+
 const dependenciesMap: Record<
   | keyof typeof artifactFilename
   | 'application/vnd.mermaid'
@@ -119,6 +125,7 @@ const dependenciesMap: Record<
 > = {
   'application/vnd.mermaid': mermaidDependencies,
   'application/vnd.react': standardDependencies,
+  'application/vnd.pdf': pdfDependencies,
   'text/html': standardDependencies,
   'application/vnd.code-html': standardDependencies,
   'text/markdown': markdownDependencies,

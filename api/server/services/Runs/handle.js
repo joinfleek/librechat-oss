@@ -126,12 +126,14 @@ async function waitForRun({
     try {
       const timeoutMessage = `[heartbeat ${i}] ${runIdLog} | Cancel Status check operation timed out.`;
       cancelStatus = await withTimeout(cache.get(cacheKey), raceTimeoutMs, timeoutMessage);
+      logger.debug(`[DEBUG-CANCEL] ${runIdLog} | Cache key: ${cacheKey}, Cancel status: ${cancelStatus || 'null'}`);
     } catch (error) {
       logger.warn(`Error retrieving cancel status: ${error}`);
     }
 
     if (cancelStatus === 'cancelled') {
       logger.warn(`[waitForRun] ${runStatus} | RUN CANCELLED`);
+      logger.warn(`[DEBUG-CANCEL] ${runIdLog} | Cancellation detected at heartbeat ${i}, run status was: ${run.status}`);
       throw new Error('Run cancelled');
     }
 

@@ -15,7 +15,7 @@ export const useMCPServersQuery = <TData = t.MCPServersListResponse>(
       staleTime: 1000 * 60 * 5, // 5 minutes - data stays fresh longer
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
-      refetchOnMount: false,
+      refetchOnMount: true, // Changed to true for debugging
       retry: false,
       ...config,
     },
@@ -36,7 +36,7 @@ export const useMCPToolsQuery = <TData = t.MCPServersResponse>(
     {
       refetchOnWindowFocus: false,
       refetchOnReconnect: false,
-      refetchOnMount: false,
+      refetchOnMount: true, // Changed to true for debugging
       staleTime: 5 * 60 * 1000, // 5 minutes
       ...config,
     },

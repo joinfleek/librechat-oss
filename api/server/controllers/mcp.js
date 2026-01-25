@@ -175,14 +175,19 @@ const getMCPTools = async (req, res) => {
  * @route GET /api/mcp/servers
  */
 const getMCPServersList = async (req, res) => {
+  logger.info('[getMCPServersList] API called');
   try {
     const userId = req.user?.id;
+    logger.info('[getMCPServersList] userId:', { userId });
     if (!userId) {
       return res.status(401).json({ message: 'Unauthorized' });
     }
 
     // 2. Get all server configs from registry (YAML + DB)
     const serverConfigs = await getMCPServersRegistry().getAllServerConfigs(userId);
+
+    // DEBUG: Log what servers are available
+    logger.info('[getMCPServersList] Returning servers:', { servers: Object.keys(serverConfigs) });
 
     return res.json(serverConfigs);
   } catch (error) {

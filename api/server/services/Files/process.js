@@ -504,7 +504,35 @@ const processAgentFileUpload = async ({ req, res, metadata }) => {
       apiKey: result[EnvVar.CODE_API_KEY],
       entity_id,
     });
-    fileInfoMetadata = { fileIdentifier };
+
+    // Create file record and return early - no need for dual storage
+    const fileInfo = removeNullishValues({
+      user: req.user.id,
+      file_id,
+      temp_file_id,
+      bytes: file.size,
+      filepath: file.path,
+      filename: sanitizeFilename(file.originalname),
+      context: messageAttachment ? FileContext.message_attachment : FileContext.agents,
+      model: messageAttachment ? undefined : req.body.model,
+      metadata: { fileIdentifier },
+      type: file.mimetype,
+      source: FileSources.execute_code,
+    });
+
+    if (!messageAttachment && tool_resource) {
+      await addAgentResourceFile({
+        req,
+        file_id,
+        agent_id,
+        tool_resource,
+      });
+    }
+
+    const fileResult = await createFile(fileInfo, true);
+    return res
+      .status(200)
+      .json({ message: 'Agent file uploaded and processed successfully', ...fileResult });
   } else if (tool_resource === EToolResources.file_search) {
     const isFileSearchEnabled = await checkCapability(req, AgentCapabilities.file_search);
     if (!isFileSearchEnabled) {

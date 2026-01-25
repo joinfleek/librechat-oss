@@ -59,6 +59,15 @@ export default function Artifacts() {
     };
   }, [isMobile]);
 
+  const {
+    activeTab,
+    setActiveTab,
+    currentIndex,
+    currentArtifact,
+    orderedArtifactIds,
+    setCurrentArtifactId,
+  } = useArtifacts();
+
   useEffect(() => {
     if (!isMobile) {
       setBlurAmount(0);
@@ -77,15 +86,6 @@ export default function Artifacts() {
       setBlurAmount(Math.round(progress * MAX_BLUR_AMOUNT));
     }
   }, [height, isMobile]);
-
-  const {
-    activeTab,
-    setActiveTab,
-    currentIndex,
-    currentArtifact,
-    orderedArtifactIds,
-    setCurrentArtifactId,
-  } = useArtifacts();
 
   const handleDragStart = (e: React.PointerEvent) => {
     setIsDragging(true);
