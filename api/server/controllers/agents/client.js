@@ -411,6 +411,10 @@ class AgentClient extends BaseClient {
       return formattedMessage;
     });
 
+    // DEBUG: Log token counts after recount loop
+    const tokensAfterLoop = orderedMessages.map(m => m.tokenCount || 0);
+    logger.info(`[AgentClient] After recount loop: tokenCounts=[${tokensAfterLoop.join(',')}], total=${tokensAfterLoop.reduce((a,b)=>a+b,0)}`);
+
     if (this.contextHandlers) {
       this.augmentedPrompt = await this.contextHandlers.createContext();
       systemContent = this.augmentedPrompt + systemContent;

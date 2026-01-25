@@ -474,7 +474,8 @@ class BaseClient {
       throw new Error(errorMessage);
     }
 
-    if (this.clientName === EModelEndpoint.agents) {
+    // Skip tool call truncation if summarization is enabled - let summarization handle context compression
+    if (this.clientName === EModelEndpoint.agents && !this.shouldSummarize) {
       const { dbMessages, editedIndices } = truncateToolCallOutputs(
         orderedMessages,
         this.maxContextTokens,
