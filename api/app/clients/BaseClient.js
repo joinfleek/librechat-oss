@@ -490,144 +490,187 @@ class BaseClient {
       }
     }
 
-    let orderedWithInstructions = this.addInstructions(orderedMessages, instructions);
-
-    // Calculate total tokens for checkpoint-based compression
     const instructionsTokenCount = instructions?.tokenCount ?? 0;
-    const totalMessageTokens = orderedMessages.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
-    const totalTokens = totalMessageTokens + instructionsTokenCount;
-    const compressionThreshold =
-      this.compressionThreshold ?? SUMMARIZATION_CONSTANTS.DEFAULT_COMPRESSION_THRESHOLD;
-    const shouldTriggerCompression =
-      this.shouldSummarize && totalTokens > this.maxContextTokens * compressionThreshold;
-
-    logger.info(
-      `[BaseClient] Compression Check: totalTokens=${totalTokens}, threshold=${Math.floor(this.maxContextTokens * compressionThreshold)}, shouldTrigger=${shouldTriggerCompression}, shouldSummarize=${this.shouldSummarize}, msgCount=${orderedMessages.length}`,
-    );
-
-    let summaryMessage;
-    let summaryTokenCount;
-    let { shouldSummarize } = this;
+    let orderedWithInstructions = this.addInstructions(orderedMessages, instructions);
+    let summaryMessage = null;
+    let summaryTokenCount = 0;
     let payload;
     let remainingContextTokens;
 
-    // Checkpoint-based compression: trigger at threshold and compress ALL messages
-    if (shouldTriggerCompression && orderedMessages.length > 1) {
-      logger.info('[BaseClient] Compression triggered at', {
-        percentage: Math.floor((totalTokens / this.maxContextTokens) * 100) + '%',
-        totalTokens,
-        maxContextTokens: this.maxContextTokens,
+    // ============================================
+    // STEP 1: Find the last checkpoint (if any)
+    // A checkpoint is a message that has a stored summary
+    // ============================================
+    let checkpointIndex = -1;
+    let lastSummary = '';
+    let lastSummaryTokenCount = 0;
+
+    for (let i = orderedMessages.length - 1; i >= 0; i--) {
+      if (orderedMessages[i].summary) {
+        checkpointIndex = i;
+        lastSummary = orderedMessages[i].summary;
+        lastSummaryTokenCount = orderedMessages[i].summaryTokenCount || 0;
+        break;
+      }
+    }
+
+    // ============================================
+    // STEP 2: Calculate tokens SINCE last checkpoint
+    // Only count messages that came AFTER the checkpoint
+    // ============================================
+    const messagesAfterCheckpoint =
+      checkpointIndex >= 0 ? orderedMessages.slice(checkpointIndex + 1) : orderedMessages;
+
+    const tokensSinceCheckpoint = messagesAfterCheckpoint.reduce(
+      (sum, m) => sum + (m.tokenCount || 0),
+      0,
+    );
+
+    logger.info('[BaseClient] Checkpoint analysis', {
+      checkpointFound: checkpointIndex >= 0,
+      checkpointIndex,
+      totalMessages: orderedMessages.length,
+      messagesAfterCheckpoint: messagesAfterCheckpoint.length,
+      tokensSinceCheckpoint,
+      lastSummaryTokenCount,
+    });
+
+    // ============================================
+    // STEP 3: Check if new checkpoint is needed
+    // Trigger when tokens SINCE last checkpoint exceed threshold
+    // ============================================
+    const compressionThreshold =
+      this.compressionThreshold ?? SUMMARIZATION_CONSTANTS.DEFAULT_COMPRESSION_THRESHOLD;
+    const threshold = this.maxContextTokens * compressionThreshold;
+    const shouldCreateCheckpoint =
+      this.shouldSummarize && tokensSinceCheckpoint > threshold && messagesAfterCheckpoint.length > 1;
+
+    logger.info('[BaseClient] Compression check', {
+      tokensSinceCheckpoint,
+      threshold: Math.floor(threshold),
+      shouldCreateCheckpoint,
+      shouldSummarize: this.shouldSummarize,
+    });
+
+    // ============================================
+    // STEP 4: Create new checkpoint if needed
+    // Summarize all messages up to (not including) the latest
+    // ============================================
+    if (shouldCreateCheckpoint) {
+      // Summarize all messages BEFORE the latest user message
+      const messagesToSummarize = orderedMessages.slice(0, -1);
+      const availableTokens = this.maxContextTokens - instructionsTokenCount - 100;
+
+      logger.info('[BaseClient] Creating new checkpoint', {
+        messagesToSummarize: messagesToSummarize.length,
+        previousSummaryLength: lastSummary.length,
+        availableTokens,
       });
 
-      // Get previous summary if exists
-      const previousSummary = this.previous_summary?.summary || '';
-
-      // Reserve tokens for the latest message and some buffer
-      const latestMessage = orderedMessages[orderedMessages.length - 1];
-      const latestMessageTokens = latestMessage?.tokenCount || 0;
-      const bufferTokens = 100; // Safety buffer
-      const availableForSummary =
-        this.maxContextTokens - latestMessageTokens - instructionsTokenCount - bufferTokens;
-
-      // Compress ALL messages with recency-weighted summarization
       const result = await this.summarizeMessages({
-        messagesToRefine: orderedMessages,
-        previousSummary,
-        remainingContextTokens: availableForSummary,
+        messagesToRefine: messagesToSummarize,
+        previousSummary: lastSummary,
+        remainingContextTokens: availableTokens,
       });
 
-      summaryMessage = result.summaryMessage;
-      summaryTokenCount = result.summaryTokenCount;
+      if (result.summaryMessage) {
+        // Store checkpoint on the second-to-last message
+        const triggerMessage = orderedMessages[orderedMessages.length - 2];
+        const summaryContent = result.summaryMessage.content.replace(
+          'Previous conversation summary:\n',
+          '',
+        );
 
-      if (summaryMessage) {
-        // Build minimal payload: [instructions?, summary, latest_message]
-        const latestFormattedMessage = formattedMessages[formattedMessages.length - 1];
-        payload = _instructions
-          ? [_instructions, summaryMessage, latestFormattedMessage]
-          : [summaryMessage, latestFormattedMessage];
+        this.storeCheckpoint(triggerMessage, summaryContent, result.summaryTokenCount).catch(
+          (err) => logger.error('[BaseClient] Checkpoint storage failed:', err),
+        );
 
-        remainingContextTokens =
-          this.maxContextTokens - summaryTokenCount - latestMessageTokens - instructionsTokenCount;
+        // Update local state for payload building
+        checkpointIndex = orderedMessages.length - 2;
+        lastSummary = summaryContent;
+        lastSummaryTokenCount = result.summaryTokenCount;
 
-        // Store checkpoint on the second-to-last message (the one before latest user message)
-        if (orderedMessages.length >= 2) {
-          const triggerMessage = orderedMessages[orderedMessages.length - 2];
-          // Run async, don't block
-          this.storeCheckpoint(
-            triggerMessage,
-            summaryMessage.content.replace('Previous conversation summary:\n', ''),
-            summaryTokenCount,
-          ).catch((err) => logger.error('[BaseClient] Checkpoint storage failed:', err));
-        }
-
-        logger.info('[BaseClient] Checkpoint compression complete', {
-          originalMessages: orderedMessages.length,
-          payloadSize: payload.length,
-          summaryTokenCount,
-          tokensSaved: totalTokens - summaryTokenCount - latestMessageTokens,
-        });
-
-        // Log payload structure after compression
-        logger.info('[BaseClient] Compressed payload structure', {
-          payloadRoles: payload.map((m) => m.role),
-          payloadTokens: payload.map((m) => m.tokenCount || 'unknown'),
-          totalPayloadTokens: payload.reduce((sum, m) => sum + (m.tokenCount || 0), 0),
+        logger.info('[BaseClient] New checkpoint created', {
+          checkpointIndex,
+          summaryTokenCount: lastSummaryTokenCount,
+          messageId: triggerMessage.messageId,
         });
       }
     }
 
-    // If compression wasn't triggered or failed, use normal flow
-    if (!payload) {
-      let { context, remainingContextTokens: remaining, messagesToRefine } =
-        await this.getMessagesWithinTokenLimit({
-          messages: orderedWithInstructions,
-          instructions,
-        });
+    // ============================================
+    // STEP 5: Build payload
+    // [instructions?, summary?, all_messages_after_checkpoint]
+    // ============================================
+    const formattedMessagesAfterCheckpoint =
+      checkpointIndex >= 0 ? formattedMessages.slice(checkpointIndex + 1) : formattedMessages;
 
-      remainingContextTokens = remaining;
+    // Start with messages after checkpoint
+    payload = [...formattedMessagesAfterCheckpoint];
 
-      logger.debug('[BaseClient] Context Count (1/2)', {
-        remainingContextTokens,
+    // Add summary message if we have one
+    if (lastSummary) {
+      summaryMessage = {
+        role: 'system',
+        content: `Previous conversation summary:\n${lastSummary}`,
+        tokenCount: lastSummaryTokenCount,
+      };
+      summaryTokenCount = lastSummaryTokenCount;
+      payload.unshift(summaryMessage);
+    }
+
+    // Add instructions
+    payload = this.addInstructions(payload, instructions);
+
+    // Calculate remaining context tokens
+    const payloadTokens = payload.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
+    remainingContextTokens = this.maxContextTokens - payloadTokens;
+
+    logger.info('[BaseClient] Payload built', {
+      payloadSize: payload.length,
+      payloadTokens,
+      remainingContextTokens,
+      hasSummary: !!lastSummary,
+      messagesAfterCheckpoint: formattedMessagesAfterCheckpoint.length,
+    });
+
+    // ============================================
+    // STEP 6: Handle edge case where payload is still too large
+    // This shouldn't happen often with proper threshold tuning
+    // ============================================
+    if (remainingContextTokens < 0) {
+      logger.warn('[BaseClient] Payload exceeds context limit, truncating oldest messages', {
+        payloadTokens,
         maxContextTokens: this.maxContextTokens,
+        overflow: -remainingContextTokens,
       });
 
-      // Calculate the difference in length to determine how many messages were discarded if any
-      let { length } = formattedMessages;
-      length += instructions != null ? 1 : 0;
-      const diff = length - context.length;
-
-      if (diff > 0) {
-        payload = formattedMessages.slice(diff);
-        logger.debug(
-          `[BaseClient] Difference between original payload (${length}) and context (${context.length}): ${diff}`,
-        );
+      // Remove messages from the start (after summary) until we fit
+      // Keep at least the summary and latest message
+      const minPayloadSize = summaryMessage ? 2 : 1;
+      while (payload.length > minPayloadSize && remainingContextTokens < 0) {
+        const startIndex = summaryMessage ? 1 : 0; // Skip summary if present
+        if (instructions && payload[0] === instructions) {
+          // Skip instructions too
+          payload.splice(startIndex + 1, 1);
+        } else {
+          payload.splice(startIndex, 1);
+        }
+        const newPayloadTokens = payload.reduce((sum, m) => sum + (m.tokenCount || 0), 0);
+        remainingContextTokens = this.maxContextTokens - newPayloadTokens;
       }
-
-      payload = this.addInstructions(payload ?? formattedMessages, _instructions);
-
-      const latestMessage = orderedWithInstructions[orderedWithInstructions.length - 1];
-      if (payload.length === 0 && !shouldSummarize && latestMessage) {
-        const info = `${latestMessage.tokenCount} / ${this.maxContextTokens}`;
-        const errorMessage = `{ "type": "${ErrorTypes.INPUT_LENGTH}", "info": "${info}" }`;
-        logger.warn(`Prompt token count exceeds max token count (${info}).`);
-        throw new Error(errorMessage);
-      } else if (
-        _instructions &&
-        payload.length === 1 &&
-        payload[0].content === _instructions.content
-      ) {
-        const info = `${tokenCount + 3} / ${this.maxContextTokens}`;
-        const errorMessage = `{ "type": "${ErrorTypes.INPUT_LENGTH}", "info": "${info}" }`;
-        logger.warn(
-          `Including instructions, the prompt token count exceeds remaining max token count (${info}).`,
-        );
-        throw new Error(errorMessage);
-      }
-
-      // Note: Legacy summarization removed - we only use full checkpoint compression
     }
 
-    // Make sure to only continue summarization logic if the summary message was generated
+    // Final validation
+    const latestMessage = orderedMessages[orderedMessages.length - 1];
+    if (payload.length === 0 && latestMessage) {
+      const info = `${latestMessage.tokenCount} / ${this.maxContextTokens}`;
+      const errorMessage = `{ "type": "${ErrorTypes.INPUT_LENGTH}", "info": "${info}" }`;
+      logger.warn(`Prompt token count exceeds max token count (${info}).`);
+      throw new Error(errorMessage);
+    }
+
+    let { shouldSummarize } = this;
     shouldSummarize = summaryMessage != null && shouldSummarize === true;
 
     logger.debug('[BaseClient] Context Count (2/2)', {
