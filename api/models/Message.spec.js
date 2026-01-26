@@ -323,6 +323,88 @@ describe('Message Operations', () => {
     });
   });
 
+  describe('parentMessageId sanitization', () => {
+    it('should sanitize parentMessageId with trailing underscore in saveMessage', async () => {
+      const conversationId = uuidv4();
+      const parentMessageId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a_'; // Note trailing underscore
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'msg-child',
+        conversationId,
+        parentMessageId,
+        text: 'Child message',
+        user: 'user123',
+      });
+
+      // Should strip the trailing underscore
+      expect(result.parentMessageId).toBe('c0e8bb40-de41-4229-bd6a-9d3f120de38a');
+    });
+
+    it('should not modify parentMessageId without trailing underscore', async () => {
+      const conversationId = uuidv4();
+      const parentMessageId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a'; // No trailing underscore
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'msg-child',
+        conversationId,
+        parentMessageId,
+        text: 'Child message',
+        user: 'user123',
+      });
+
+      // Should remain unchanged
+      expect(result.parentMessageId).toBe('c0e8bb40-de41-4229-bd6a-9d3f120de38a');
+    });
+
+    it('should handle undefined parentMessageId', async () => {
+      const conversationId = uuidv4();
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'msg-root',
+        conversationId,
+        text: 'Root message',
+        user: 'user123',
+        // No parentMessageId
+      });
+
+      expect(result.parentMessageId).toBeUndefined();
+    });
+
+    it('should sanitize parentMessageId in bulkSaveMessages', async () => {
+      const conversationId = uuidv4();
+      const messages = [
+        {
+          messageId: 'bulk-msg-1',
+          conversationId,
+          parentMessageId: 'parent-1_', // With underscore
+          text: 'Bulk message 1',
+          user: 'user123',
+        },
+        {
+          messageId: 'bulk-msg-2',
+          conversationId,
+          parentMessageId: 'parent-2', // Without underscore
+          text: 'Bulk message 2',
+          user: 'user123',
+        },
+      ];
+
+      await bulkSaveMessages(messages);
+
+      const savedMessages = await Message.find({
+        messageId: { $in: ['bulk-msg-1', 'bulk-msg-2'] },
+      }).lean();
+
+      const msg1 = savedMessages.find((m) => m.messageId === 'bulk-msg-1');
+      const msg2 = savedMessages.find((m) => m.messageId === 'bulk-msg-2');
+
+      // First message should have underscore stripped
+      expect(msg1.parentMessageId).toBe('parent-1');
+      // Second message should remain unchanged
+      expect(msg2.parentMessageId).toBe('parent-2');
+    });
+  });
+
   describe('isTemporary message handling', () => {
     beforeEach(() => {
       // Reset mocks before each test

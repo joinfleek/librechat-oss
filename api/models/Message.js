@@ -6,6 +6,23 @@ const { Message } = require('~/db/models');
 const idSchema = z.string().uuid();
 
 /**
+ * Sanitizes parentMessageId by removing trailing underscores.
+ * This fixes a bug where frontend optimistic UI leaks intermediate IDs
+ * (e.g., 'c0e8bb40-de41-4229-bd6a-9d3f120de38a_') into the database,
+ * breaking message tree traversal and checkpoint summarization.
+ *
+ * @param {string|undefined} parentMessageId - The parentMessageId to sanitize
+ * @returns {string|undefined} The sanitized parentMessageId
+ */
+function sanitizeParentMessageId(parentMessageId) {
+  if (parentMessageId && parentMessageId.endsWith('_')) {
+    logger.warn(`[Message] Sanitizing parentMessageId with trailing underscore: ${parentMessageId}`);
+    return parentMessageId.slice(0, -1);
+  }
+  return parentMessageId;
+}
+
+/**
  * Saves a message in the database.
  *
  * @async
@@ -53,6 +70,11 @@ async function saveMessage(req, params, metadata) {
       user: req.user.id,
       messageId: params.newMessageId || params.messageId,
     };
+
+    // Sanitize parentMessageId to prevent trailing underscore corruption
+    if (update.parentMessageId) {
+      update.parentMessageId = sanitizeParentMessageId(update.parentMessageId);
+    }
 
     if (req?.body?.isTemporary) {
       try {
@@ -137,14 +159,21 @@ async function saveMessage(req, params, metadata) {
  */
 async function bulkSaveMessages(messages, overrideTimestamp = false) {
   try {
-    const bulkOps = messages.map((message) => ({
-      updateOne: {
-        filter: { messageId: message.messageId },
-        update: message,
-        timestamps: !overrideTimestamp,
-        upsert: true,
-      },
-    }));
+    const bulkOps = messages.map((message) => {
+      // Sanitize parentMessageId to prevent trailing underscore corruption
+      const sanitizedMessage = { ...message };
+      if (sanitizedMessage.parentMessageId) {
+        sanitizedMessage.parentMessageId = sanitizeParentMessageId(sanitizedMessage.parentMessageId);
+      }
+      return {
+        updateOne: {
+          filter: { messageId: sanitizedMessage.messageId },
+          update: sanitizedMessage,
+          timestamps: !overrideTimestamp,
+          upsert: true,
+        },
+      };
+    });
     const result = await Message.bulkWrite(bulkOps);
     return result;
   } catch (err) {
@@ -177,13 +206,16 @@ async function recordMessage({
   ...rest
 }) {
   try {
+    // Sanitize parentMessageId to prevent trailing underscore corruption
+    const sanitizedParentMessageId = sanitizeParentMessageId(parentMessageId);
+
     // No parsing of convoId as may use threadId
     const message = {
       user,
       endpoint,
       messageId,
       conversationId,
-      parentMessageId,
+      parentMessageId: sanitizedParentMessageId,
       ...rest,
     };
 
