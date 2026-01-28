@@ -326,34 +326,50 @@ describe('Message Operations', () => {
   describe('parentMessageId sanitization', () => {
     it('should sanitize parentMessageId with trailing underscore in saveMessage', async () => {
       const conversationId = uuidv4();
-      const parentMessageId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a_'; // Note trailing underscore
+      const parentId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a';
+
+      // First save the parent message so it exists
+      await saveMessage(mockReq, {
+        messageId: parentId,
+        conversationId,
+        text: 'Parent message',
+        user: 'user123',
+      });
 
       const result = await saveMessage(mockReq, {
         messageId: 'msg-child',
         conversationId,
-        parentMessageId,
+        parentMessageId: parentId + '_', // Note trailing underscore
         text: 'Child message',
         user: 'user123',
       });
 
       // Should strip the trailing underscore
-      expect(result.parentMessageId).toBe('c0e8bb40-de41-4229-bd6a-9d3f120de38a');
+      expect(result.parentMessageId).toBe(parentId);
     });
 
     it('should not modify parentMessageId without trailing underscore', async () => {
       const conversationId = uuidv4();
-      const parentMessageId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a'; // No trailing underscore
+      const parentId = 'c0e8bb40-de41-4229-bd6a-9d3f120de38a';
+
+      // First save the parent message so it exists
+      await saveMessage(mockReq, {
+        messageId: parentId,
+        conversationId,
+        text: 'Parent message',
+        user: 'user123',
+      });
 
       const result = await saveMessage(mockReq, {
         messageId: 'msg-child',
         conversationId,
-        parentMessageId,
+        parentMessageId: parentId, // No trailing underscore
         text: 'Child message',
         user: 'user123',
       });
 
       // Should remain unchanged
-      expect(result.parentMessageId).toBe('c0e8bb40-de41-4229-bd6a-9d3f120de38a');
+      expect(result.parentMessageId).toBe(parentId);
     });
 
     it('should handle undefined parentMessageId', async () => {
@@ -402,6 +418,81 @@ describe('Message Operations', () => {
       expect(msg1.parentMessageId).toBe('parent-1');
       // Second message should remain unchanged
       expect(msg2.parentMessageId).toBe('parent-2');
+    });
+  });
+
+  describe('parentMessageId temporal validation', () => {
+    it('should correct parentMessageId when parent does not exist', async () => {
+      const conversationId = uuidv4();
+
+      // Save a real parent
+      await saveMessage(mockReq, {
+        messageId: 'real-parent',
+        conversationId,
+        text: 'Parent',
+        user: 'user123',
+      });
+
+      // Save child with non-existent parent
+      const result = await saveMessage(mockReq, {
+        messageId: 'child',
+        conversationId,
+        parentMessageId: 'non-existent-parent',
+        text: 'Child',
+        user: 'user123',
+      });
+
+      expect(result.parentMessageId).toBe('real-parent');
+    });
+
+    it('should not modify parentMessageId when parent exists', async () => {
+      const conversationId = uuidv4();
+
+      await saveMessage(mockReq, {
+        messageId: 'existing-parent',
+        conversationId,
+        text: 'Parent',
+        user: 'user123',
+      });
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'child',
+        conversationId,
+        parentMessageId: 'existing-parent',
+        text: 'Child',
+        user: 'user123',
+      });
+
+      expect(result.parentMessageId).toBe('existing-parent');
+    });
+
+    it('should set to undefined when no messages exist in conversation', async () => {
+      const conversationId = uuidv4();
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'first-msg',
+        conversationId,
+        parentMessageId: 'non-existent',
+        text: 'First',
+        user: 'user123',
+      });
+
+      expect(result.parentMessageId).toBeUndefined();
+    });
+
+    it('should not modify root parent ID', async () => {
+      const conversationId = uuidv4();
+      const rootParent = '00000000-0000-0000-0000-000000000000';
+
+      const result = await saveMessage(mockReq, {
+        messageId: 'root-child',
+        conversationId,
+        parentMessageId: rootParent,
+        text: 'Root message',
+        user: 'user123',
+      });
+
+      expect(result.parentMessageId).toBe(rootParent);
     });
   });
 

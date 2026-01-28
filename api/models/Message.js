@@ -23,6 +23,56 @@ function sanitizeParentMessageId(parentMessageId) {
 }
 
 /**
+ * Validates parentMessageId exists in the database.
+ * If not, finds the most recent message in the conversation as the correct parent.
+ * This fixes race conditions where frontend assigns parent to not-yet-saved messages.
+ *
+ * @async
+ * @param {Object} params
+ * @param {string} params.user - User ID
+ * @param {string} params.conversationId - Conversation ID
+ * @param {string|undefined} params.parentMessageId - The parentMessageId to validate
+ * @returns {Promise<string|undefined>} The validated/corrected parentMessageId
+ */
+async function validateParentMessageId({ user, conversationId, parentMessageId }) {
+  if (!parentMessageId || parentMessageId === '00000000-0000-0000-0000-000000000000') {
+    return parentMessageId;
+  }
+
+  // Check if parent exists
+  const parentExists = await Message.findOne(
+    { user, messageId: parentMessageId },
+    { _id: 1 }
+  ).lean();
+
+  if (parentExists) {
+    return parentMessageId;
+  }
+
+  // Parent doesn't exist - find the most recent message in this conversation
+  const correctParent = await Message.findOne(
+    { user, conversationId }
+  )
+    .sort({ createdAt: -1 })
+    .select('messageId')
+    .lean();
+
+  if (correctParent) {
+    logger.warn(
+      `[Message] Temporal violation: parentMessageId '${parentMessageId}' does not exist. ` +
+      `Correcting to '${correctParent.messageId}'`
+    );
+    return correctParent.messageId;
+  }
+
+  logger.warn(
+    `[Message] Temporal violation: parentMessageId '${parentMessageId}' does not exist ` +
+    `and no prior messages in conversation. Setting to undefined.`
+  );
+  return undefined;
+}
+
+/**
  * Saves a message in the database.
  *
  * @async
@@ -72,9 +122,16 @@ async function saveMessage(req, params, metadata) {
     };
 
     // Sanitize parentMessageId to prevent trailing underscore corruption
-    if (update.parentMessageId) {
-      update.parentMessageId = sanitizeParentMessageId(update.parentMessageId);
-    }
+    const sanitizedParentMessageId = sanitizeParentMessageId(update.parentMessageId);
+
+    // Validate parentMessageId exists (prevent temporal violations)
+    const validatedParentMessageId = await validateParentMessageId({
+      user: req.user.id,
+      conversationId: params.conversationId,
+      parentMessageId: sanitizedParentMessageId,
+    });
+
+    update.parentMessageId = validatedParentMessageId;
 
     if (req?.body?.isTemporary) {
       try {
@@ -209,13 +266,20 @@ async function recordMessage({
     // Sanitize parentMessageId to prevent trailing underscore corruption
     const sanitizedParentMessageId = sanitizeParentMessageId(parentMessageId);
 
+    // Validate parentMessageId exists (prevent temporal violations)
+    const validatedParentMessageId = await validateParentMessageId({
+      user,
+      conversationId,
+      parentMessageId: sanitizedParentMessageId,
+    });
+
     // No parsing of convoId as may use threadId
     const message = {
       user,
       endpoint,
       messageId,
       conversationId,
-      parentMessageId: sanitizedParentMessageId,
+      parentMessageId: validatedParentMessageId,
       ...rest,
     };
 
