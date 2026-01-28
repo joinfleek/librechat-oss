@@ -392,11 +392,12 @@ class AgentClient extends BaseClient {
     const tokensBefore = orderedMessages.map(m => m.tokenCount || 0);
     logger.info(`[AgentClient] After getMessagesForConversation: msgCount=${orderedMessages.length}, tokenCounts=[${tokensBefore.join(',')}], total=${tokensBefore.reduce((a,b)=>a+b,0)}`);
 
-    orderedMessages = applyAgentLabelsToHistory(
-      orderedMessages,
-      this.options.agent,
-      this.agentConfigs,
-    );
+    // TODO: applyAgentLabelsToHistory was never implemented - skipping for now
+    // orderedMessages = applyAgentLabelsToHistory(
+    //   orderedMessages,
+    //   this.options.agent,
+    //   this.agentConfigs,
+    // );
 
     let payload;
     /** @type {number | undefined} */
